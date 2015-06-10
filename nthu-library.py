@@ -1,12 +1,21 @@
 import requests
 from bs4 import BeautifulSoup
+from collections import namedtuple
 
-session = requests.Session()
-ID, PWD = 'STUDENT_ID', 'PASSWORD'
+import secret
+Account = namedtuple('Account', ['id', 'password'])
+
+'''
+    ACOOUNT DATA STRUCTURE:
+
+    accounts = [
+        ('id', 'password'),
+    ]
+'''
 
 
 def get_page(url):
-    response = session.get(url)
+    response = requests.get(url)
     response.encoding = 'utf8'
     return BeautifulSoup(response.text)
 
@@ -27,25 +36,29 @@ def process(soup):
                 print('%s\n%s' % (name, deadline))
 
 
-def login(login_url):
+def login(login_url, account):
     soup = get_page(login_url)
     form = soup.find_all('form')[0]
     action = form['action']
     data = {
-        'bor_id': ID,
-        'bor_verification': PWD,
+        'bor_id': account.id,
+        'bor_verification': account.password,
         'ssl_flag': 'Y',
         'func': 'login',
     }
-    response = session.post(action, data=data)
+    response = requests.post(action, data=data)
     response.encoding = 'utf8'
     soup = get_page(response.url + '?func=bor-renew-all&adm_library=TOP51')
     process(soup)
 
 
-def start():
+def start(account):
     soup = get_page('http://webpac.lib.nthu.edu.tw/F?RN=842953775')
     bar = soup.findAll(attrs={'title': 'Enter your username and password'})[0]
-    login(bar['href'])
+    login(bar['href'], account)
 
-start()
+
+if __name__ == '__main__':
+    for account in secret.accounts:
+        acc = Account._make(account)
+        start(acc)
