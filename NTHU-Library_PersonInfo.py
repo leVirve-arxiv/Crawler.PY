@@ -10,12 +10,13 @@ __author__ = 'salas'
 def get_page(url, soupful=True):
     resp = requests.get(url)
     resp.encoding = 'utf8'
-
     return BeautifulSoup(resp.text, 'lxml') if soupful else resp
 
 
 def post_page(url, **kwargs):
-    return requests.post(url, **kwargs)
+    resp = requests.post(url, **kwargs)
+    resp.encoding = 'utf8'
+    return resp
 
 
 class NotLoginException(Exception):
@@ -36,6 +37,7 @@ class UserPayload:
             'ssl_flag': 'Y',
         }
 
+
 class NTHULibrary():
 
     home = 'http://webpac.lib.nthu.edu.tw/F/'
@@ -50,7 +52,6 @@ class NTHULibrary():
         login_url = soup.find('form').attrs.get('action')
 
         resp = post_page(login_url, data=self.user.to_dict())
-        resp.encoding = 'utf-8'
         self._session_url = resp.url
         return '您已登入' in resp.text
 
@@ -63,9 +64,7 @@ class NTHULibrary():
 
     def _parse(self, soup):
         result = {}
-
         result['name'] = soup.find('font', attrs={'size': '4'}).text
-
         tables = soup.find_all('table', attrs={'cellspacing': '2'})
 
         # 圖書館流通狀態
@@ -77,8 +76,8 @@ class NTHULibrary():
             link = re.findall("'(.*?)'", cols[1].find('a').attrs.get('href'))[0]
             status[key] = (val, link)
 
-        person = {}
         # 聯絡資料
+        person = {}
         for row in tables[1].find_all('tr'):
             cols = [e for e in row.children if str(e).strip()]
             key = cols[0].text.strip() or '地址'
@@ -96,11 +95,9 @@ class NTHULibrary():
             manage[key] = val
 
         result['user'] = person
-        result['user']['manage'] = manage
         result['status'] = status
-
+        result['user']['manage'] = manage
         return result
-        # return json.dumps(result, indent=2, ensure_ascii=False)
 
     def get_current_bowrrow(self, res):
         soup = get_page(res['status']['目前借閱中清單'][1])
@@ -109,14 +106,11 @@ class NTHULibrary():
         for row in table.find_all('tr')[1:]:
             cols = [e for e in row.children if str(e).strip()]
             meta_dl = re.findall('(.*?)(\d+)', cols[5].text)[0]
-            pretty_title = cols[3].text
-            if cols[3].text[-1] is '/':
-                pretty_title = pretty_title[:-1].strip()
 
             book = {
                 'link': cols[0].find('a').attrs.get('href'),
                 'author': cols[2].text,
-                'title': pretty_title,
+                'title': cols[3].text.strip(' /'),
                 'publish_year': cols[4].text,
                 'deadline_status': meta_dl[0] if len(meta_dl) == 2 else None,
                 'deadline': meta_dl[1] if len(meta_dl) == 2 else meta_dl[0],
@@ -130,7 +124,6 @@ class NTHULibrary():
     def get_bowrrow_history(self, res):
         soup = get_page(res['status']['借閱歷史清單'][1])
         table = soup.find('table', attrs={'cellspacing': '2', 'border': '0'})
-
         books = []
         for row in table.find_all('tr')[1:]:
             cols = [e for e in row.children if str(e).strip()]
@@ -138,7 +131,7 @@ class NTHULibrary():
             book = {
                 'link': cols[0].find('a').attrs.get('href'),
                 'author': cols[1].text,
-                'title': cols[2].text,
+                'title': cols[2].text.strip(' /'),
                 'publish_year': cols[3].text,
                 'deadline_status': meta_dl[0] if len(meta_dl) == 2 else None,
                 'deadline': meta_dl[1] if len(meta_dl) == 2 else meta_dl[0],
@@ -157,17 +150,13 @@ class NTHULibrary():
     def get_booking_history(self, res):
         soup = get_page(res['status']['預約歷史清單'][1])
         table = soup.find('table', attrs={'cellspacing': '2', 'border': '0'})
-
         books = []
         for row in table.find_all('tr')[1:]:
             cols = [e for e in row.children if str(e).strip()]
-            pretty_title = cols[2].text
-            if cols[2].text[-1] is '/':
-                pretty_title = pretty_title[:-1].strip()
             book = {
                 'link': cols[0].find('a').attrs.get('href'),
                 'author': cols[1].text,
-                'title': cols[2].text,
+                'title': cols[2].text.strip(' /'),
                 'publish_year': cols[3].text,
                 'history_date': cols[4].text,
                 'booking_date': cols[5].text,
@@ -192,16 +181,15 @@ if __name__ == '__main__':
         'booking-history': libary.get_booking_history,
     }
 
-
     # get all data !!!!
-    person_data = {}
-
     result = functions['info']
 
-    person_data['personal'] = result
-    person_data['借閱歷史'] = functions['borrow-history'](result)
-    person_data['借閱中'] = functions['current-borrow'](result)
-    person_data['預約紀錄'] = functions['booking-history'](result)
+    person_data = {
+        'personal': result,
+        '借閱歷史': functions['borrow-history'](result),
+        '借閱中': functions['current-borrow'](result),
+        '預約紀錄': functions['booking-history'](result),
+    }
 
-    f = open('my-lib-ultimate-data.json', 'w', encoding='utf8')
-    json.dump(person_data, f, indent=2, ensure_ascii=False)
+    with open('my-lib-ultimate-data.json', 'w', encoding='utf8') as f:
+        json.dump(person_data, f, indent=2, ensure_ascii=False)
